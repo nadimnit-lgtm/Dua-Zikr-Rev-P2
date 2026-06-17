@@ -1,0 +1,1 @@
+Arabic and Urdu font assets are open fonts. For CI builds, Rev P prepares missing font files from OS packages or public upstream font repositories before Gradle packages the APK. Keep license files with any manually bundled font binaries.

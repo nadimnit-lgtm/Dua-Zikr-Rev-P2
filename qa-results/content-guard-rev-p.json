@@ -1,0 +1,15 @@
+{
+  "revision": "Rev P",
+  "total_items": 233,
+  "errors": [],
+  "warnings": [],
+  "verification_status_counts": {
+    "Verified": 233
+  },
+  "rotation_allowed_counts": {
+    "True": 233
+  },
+  "traditional_name_count": 19,
+  "arabic_sentence_ending_policy": "Rev P Addition: Arabic/Urdu full stop display lock uses ۔ for eligible non-Quranic complete items; Quranic verse/waqf marks and source Arabic are preserved.",
+  "arabic_sentence_ending_applied_count": 169
+}
