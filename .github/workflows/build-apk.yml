@@ -1,0 +1,262 @@
+name: Build Dua & Zikr Rev P Arabic Sentence Ending Lock APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+env:
+  WORKFLOW_FINGERPRINT: "rev-p-arabic-sentence-ending-lock-clean-apk-2026-06-17"
+  REVISION_CODE: "66"
+  REVISION_NAME: "Rev P - Arabic Sentence Ending Lock"
+  APK_NAME: "dua-zikr-rev-p-sentence-ending-lock-debug.apk"
+  APK_ARTIFACT_NAME: "dua-and-zikr-rev-p-sentence-ending-lock-debug-apk"
+  ANDROID_BUILD_TOOLS: "34.0.0"
+  APPJS_SHA256: "bfb11e985313c4d2c7209b729e30439882bad8481c47d9572d2abcfe6d557ffa"
+  APPCSS_SHA256: "262a4f79dc99637a349ecab503253c73efc52b5192257dc3789cb66ba83df07e"
+  APPTVCSS_SHA256: "73af1566feaf171a77f4065bbe664c219d9645d0a8bbc17ffe6af06e4079b767"
+
+jobs:
+  build-debug-apk:
+    name: Build Rev P Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Print workflow fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "WORKFLOW_FINGERPRINT=${WORKFLOW_FINGERPRINT}"
+          find .github/workflows -maxdepth 1 -type f -print | sort
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;${ANDROID_BUILD_TOOLS}" "platform-tools"
+
+      - name: Prepare bundled Arabic font assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-core fonts-noto-extra fonts-hosny-amiri fonts-sil-scheherazade fonts-sil-scheherazade-new || true
+          chmod +x tools/prepare_fonts_revp.sh
+          mkdir -p qa-results
+          tools/prepare_fonts_revp.sh 2>&1 | tee qa-results/prepare-fonts-rev-p.log
+
+      - name: Verify required APK source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f settings.gradle
+          test -f build.gradle
+          test -f gradle.properties
+          test -x gradlew || chmod +x gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
+          test -f gradle/wrapper/gradle-wrapper.properties
+          test -f app/build.gradle
+          test -f app/azkar-debug.jks
+          test -f app/proguard-rules.pro
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/com/ahmed/azkartv/MainActivity.kt
+          test -f app/src/main/assets/index.html
+          test -f app/src/main/assets/app.js
+          test -f app/src/main/assets/app.css
+          test -f app/src/main/assets/app-tv.css
+          test -f app/src/main/assets/content/content.json
+          test -f app/src/main/assets/content/sections.json
+          test -f app/src/main/assets/fonts/NotoNaskhArabic-Regular.ttf
+          test -f app/src/main/assets/fonts/NotoSansArabic-Regular.ttf
+          test -f app/src/main/assets/fonts/ScheherazadeNew-Regular.ttf
+          test -f app/src/main/assets/fonts/Amiri-Regular.ttf
+          test -f app/src/main/assets/fonts/NotoNastaliqUrdu-Regular.ttf
+          test -f tools/content_guard_revp.py
+          test -f tools/font_guard_revp.py
+          test -f tools/settings_guard_revp.py
+          test -f tools/source_clean_guard_revp.py
+          test -f tools/dom_smoke.mjs
+          echo "Required Rev P APK source files are present."
+
+      - name: Verify package identity and Rev P version
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R "namespace[[:space:]]*['\"]com.ahmed.azkartv['\"]" app/build.gradle
+          grep -R "applicationId[[:space:]]*['\"]com.ahmed.azkartv['\"]" app/build.gradle
+          grep -R "versionCode[[:space:]]*${REVISION_CODE}" app/build.gradle
+          grep -R "versionName[[:space:]]*['\"].*${REVISION_NAME}.*['\"]" app/build.gradle
+          grep -R "android:name=\".MainActivity\"" app/src/main/AndroidManifest.xml
+          grep -R "android.intent.category.LEANBACK_LAUNCHER" app/src/main/AndroidManifest.xml
+          echo "Package identity and Rev P version verified."
+
+      - name: Guard Rev P locked asset hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_hash() {
+            local file="$1"
+            local expected="$2"
+            local actual
+            actual=$(sha256sum "$file" | awk '{print $1}')
+            echo "$file actual SHA-256:   ${actual}"
+            echo "$file expected SHA-256: ${expected}"
+            if [ "${actual}" != "${expected}" ]; then
+              echo "Blocked: locked Rev P source asset changed without workflow hash update: $file"
+              exit 1
+            fi
+          }
+          check_hash app/src/main/assets/app.js "${APPJS_SHA256}"
+          check_hash app/src/main/assets/app.css "${APPCSS_SHA256}"
+          check_hash app/src/main/assets/app-tv.css "${APPTVCSS_SHA256}"
+          echo "Rev P locked asset hashes verified."
+
+      - name: Block legacy runtime references
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE "audioBase|recAudio|recBtn|recitationNotes|waqfNotes|highContrast|high-contrast|contrastBtn|theme-card|tv-font-select" app/src/main/assets app/src/main/java app/src/main/res 2>/dev/null; then
+            echo "Blocked: legacy runtime or obsolete Settings reference found."
+            exit 1
+          fi
+          echo "Legacy runtime references not found."
+
+      - name: Install Node smoke-test dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save jsdom@24
+
+      - name: Static syntax and source guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check app/src/main/assets/app.js
+          node --check tools/dom_smoke.mjs
+          python3 -m json.tool app/src/main/assets/content/content.json >/dev/null
+          python3 -m json.tool app/src/main/assets/content/sections.json >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          css=Path('app/src/main/assets/app-tv.css').read_text(encoding='utf-8')
+          js=Path('app/src/main/assets/app.js').read_text(encoding='utf-8')
+          html=Path('app/src/main/assets/index.html').read_text(encoding='utf-8')
+          required_css=['--tv-fit-gap-scale','body.tv .reader-scroll > .arabic','body.tv .salawat-symbol','body.tv .arabic.tajweed-active .tw-ghunnah','body.tv .tv-drop-select','var(--arabic-font-family)']
+          required_js=['showTranslit: false','showEnglish: false','showUrdu: false','showTitle: true','J-tv-closure-premium-leanback-architecture','document.fonts.ready','var LS_AR_FONT = "duaZikrArabicFont"','tvDropdownRow("Arabic Font"','openTvDropdown','selectTvDropdownValue']
+          required_html=['id="mArabic"','id="settingsSheet"','id="mTranslation"','id="mUrdu"']
+          missing=[x for x in required_css if x not in css]+[x for x in required_js if x not in js]+[x for x in required_html if x not in html]
+          if missing:
+              raise SystemExit('Missing required source guard token(s): '+', '.join(missing))
+          depth=0
+          for ch in css:
+              if ch=='{': depth+=1
+              elif ch=='}': depth-=1
+              if depth<0: raise SystemExit('CSS brace underflow')
+          if depth!=0: raise SystemExit(f'CSS brace mismatch: {depth}')
+          print('Static source guards passed.')
+          PY
+
+      - name: Rev P clean source guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/source_clean_guard_revp.py 2>&1 | tee qa-results/source-clean-guard-rev-p.log
+          grep -q "REV P SOURCE CLEAN GUARD RESULT: PASS" qa-results/source-clean-guard-rev-p.log
+
+      - name: Rev P settings and theme guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/settings_guard_revp.py 2>&1 | tee qa-results/settings-guard-rev-p.log
+          grep -q "REV P SETTINGS GUARD RESULT: PASS" qa-results/settings-guard-rev-p.log
+
+      - name: Rev P font selector guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/font_guard_revp.py 2>&1 | tee qa-results/font-guard-rev-p.log
+          grep -q "REV P FONT GUARD RESULT: PASS" qa-results/font-guard-rev-p.log
+
+      - name: Rev P content guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/content_guard_revp.py 2>&1 | tee qa-results/content-guard-rev-p.log
+          grep -q "RESULT: PASS" qa-results/content-guard-rev-p.log
+
+      - name: DOM smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-results
+          node tools/dom_smoke.mjs 2>&1 | tee qa-results/dom-smoke-rev-p.log
+          grep -q "RESULT: PASS" qa-results/dom-smoke-rev-p.log
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace --warning-mode all :app:assembleDebug 2>&1 | tee qa-results/gradle-assemble-debug-rev-p.log
+          grep -q "BUILD SUCCESSFUL" qa-results/gradle-assemble-debug-rev-p.log
+
+      - name: Prepare APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "${SOURCE_APK}"
+          mkdir -p dist
+          cp "${SOURCE_APK}" "dist/${APK_NAME}"
+          APK_SIZE=$(stat -c%s "dist/${APK_NAME}")
+          echo "APK size: ${APK_SIZE} bytes" | tee qa-results/apk-size-rev-p.txt
+
+      - name: Verify APK with AAPT
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT_PATH=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)
+          test -n "${AAPT_PATH}"
+          "${AAPT_PATH}" dump badging "dist/${APK_NAME}" | tee qa-results/aapt-badging-rev-p.txt
+          grep -q "package: name='com.ahmed.azkartv'" qa-results/aapt-badging-rev-p.txt
+          grep -q "versionCode='${REVISION_CODE}'" qa-results/aapt-badging-rev-p.txt
+          grep -q "versionName='${REVISION_NAME}'" qa-results/aapt-badging-rev-p.txt
+          echo "AAPT package, versionCode, and versionName verified."
+
+      - name: Upload Rev P APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_ARTIFACT_NAME }}
+          path: dist/${{ env.APK_NAME }}
+          if-no-files-found: error
+
+      - name: Upload Rev P APK proof files
+        uses: actions/upload-artifact@v4
+        with:
+          name: rev-p-apk-proof-files
+          if-no-files-found: warn
+          path: |
+            qa-results/*rev-p*
